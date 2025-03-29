@@ -2,6 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const OpenAI = require('openai');
+const scrapePinterest = require('./scrapePinterest');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+const assistantId = process.env.DAISY_ASSISTANT_ID;
 
 dotenv.config();
 
@@ -13,9 +20,6 @@ app.get('/', (req, res) => {
   res.send('Backend is alive');
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 app.post('/stylist', async (req, res) => {
   const { messages, state } = req.body;
@@ -101,6 +105,75 @@ Bolder Look Queries:
     res.status(500).json({ error: 'Stylist is having a fashion emergency 🧵' });
   }
 });
+
+
+app.post('/chat', async (req, res) => {
+  const { userMessage, threadId } = req.body;
+
+  try {
+    // 1. Create or reuse a thread
+    let thread;
+    if (threadId) {
+      thread = { id: threadId };
+    } else {
+      thread = await openai.beta.threads.create();
+    }
+
+
+    // 2. Add user's message to the thread
+    await openai.beta.threads.messages.create(thread.id, {
+      role: 'user',
+      content: userMessage
+    });
+
+    // 3. Run Daisy
+    const run = await openai.beta.threads.runs.create(thread.id, {
+      assistant_id: assistantId
+    });
+
+    let finalRun;
+    while (true) {
+      const status = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+      if (status.status === 'completed') {
+        finalRun = status;
+        break;
+      }
+
+      if (status.status === 'requires_action') {
+        for (const toolCall of status.required_action.submit_tool_outputs.tool_calls) {
+          if (toolCall.function.name === 'search_pinterest') {
+            const query = JSON.parse(toolCall.function.arguments).query;
+            const results = await scrapePinterest(query); // Daisy's custom tool
+
+            await openai.beta.threads.runs.submitToolOutputs(thread.id, run.id, {
+              tool_outputs: [
+                {
+                  tool_call_id: toolCall.id,
+                  output: JSON.stringify(results)
+                }
+              ]
+            });
+          }
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // 4. Return final assistant message
+    const messages = await openai.beta.threads.messages.list(thread.id);
+    const lastMsg = messages.data.find(m => m.role === 'assistant');
+
+    res.json({
+      reply: lastMsg?.content?.[0]?.text?.value || 'No response',
+      threadId: thread.id
+    });
+  } catch (err) {
+    console.error('❌ Daisy /chat error:', err);
+    res.status(500).json({ error: 'Daisy failed to respond' });
+  }
+});
+
 
 
 const PORT = process.env.PORT || 3000;
