@@ -63,7 +63,30 @@ Example:
 \`\`\`
 
 Call the tool after your outfit explanations. One tool call per query. Be stylish, intuitive, and personal — like a real celeb stylist guiding someone toward their best self.
-`,
+
+---
+
+### Final Output Format
+After the tool calls have completed and you have the image results, you must return a final message in the following format:
+
+\`\`\`json
+{
+  "moodboard": {
+    "imageUrls": [list of Pinterest image URLs],
+    "rationale": {
+      "goal": "Concise fashion goal based on user’s inputs",
+      "whatWorks": "Explain what styling elements work and why",
+      "avoid": "Explain what should be avoided for this look or body type",
+      "tip": "One fashion principle, detail, or high-level stylist tip"
+    }
+  }
+}
+\`\`\`
+
+This JSON must be the **entire final message** you return after tool calls. Do not include extra text, commentary, or explanation around it.
+
+You are curating a final editorial moment — be concise, beautiful, and professional.
+    `,
     tools: [
       {
         type: "function",

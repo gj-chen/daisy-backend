@@ -83,14 +83,36 @@ app.post('/chat', async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // 4. Return final assistant message
+    // 4. Return final assistant message with structured moodboard (if present)
     const messages = await openai.beta.threads.messages.list(thread.id);
     const lastMsg = messages.data.find(m => m.role === 'assistant');
 
+    let moodboard = null;
+    try {
+      let content = lastMsg?.content?.[0]?.text?.value || '';
+
+      // Clean up markdown formatting if present
+      if (content.startsWith('```json')) {
+        content = content.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
+      }
+
+      if (content.startsWith('{')) {
+        const parsed = JSON.parse(content);
+        if (parsed?.moodboard) {
+          moodboard = parsed.moodboard;
+        }
+      }
+
+    } catch (e) {
+      console.log('⚠️ No structured moodboard returned:', e.message);
+    }
+
     res.json({
       reply: lastMsg?.content?.[0]?.text?.value || 'No response',
+      moodboard,
       threadId: thread.id
     });
+
   } catch (err) {
     console.error('❌ Daisy /chat error:', err);
     res.status(500).json({ error: 'Daisy failed to respond' });
