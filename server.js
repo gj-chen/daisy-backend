@@ -19,19 +19,57 @@ app.get('/', (req, res) => {
 app.post('/chat', async (req, res) => {
   const { userMessage, threadId } = req.body;
 
+  const readinessSignals = [
+    "i'm ready", "im ready", "ready", "cool", "go", "start styling", "let's go", "lets go", "yes", "ok let's begin"
+  ];
+
+  const vagueSignals = [
+    "i don't know", "idk", "not sure", "no idea", "something cute", "whatever", "you decide", "any vibe", "anything"
+  ];
+
+  function includesAnySignal(message, signals) {
+    return signals.some(signal => message.toLowerCase().includes(signal));
+  }
+
   try {
-    // 1. Create or reuse a thread
     let thread = threadId
       ? { id: threadId }
       : await openai.beta.threads.create();
 
-    // 2. Add user's message to the thread
+    // Inject [META] context messages before assistant run
+    const contextMessages = [];
+
+    if (includesAnySignal(userMessage, vagueSignals)) {
+      console.log('🤔 User seems unsure — guiding Daisy to suggest style directions...');
+      contextMessages.push({
+        role: 'user',
+        content: '[META] The user is unsure. Offer 2–3 aesthetic directions or ask if they want help picking a vibe.'
+      });
+    }
+
+    if (includesAnySignal(userMessage, readinessSignals)) {
+      console.log('🚀 User is ready — triggering styling mode...');
+      contextMessages.push({
+        role: 'user',
+        content: '[META] The user is ready. Switch to styling mode now and stop asking questions.'
+      });
+
+      // Inject "pulling visuals" message before run
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'assistant',
+        content: 'Hang tight — I’m pulling some visuals to match this vibe…'
+      });
+    }
+
+    for (const msg of contextMessages) {
+      await openai.beta.threads.messages.create(thread.id, msg);
+    }
+
     await openai.beta.threads.messages.create(thread.id, {
       role: 'user',
       content: userMessage
     });
 
-    // 3. Run Daisy
     const run = await openai.beta.threads.runs.create(thread.id, {
       assistant_id: assistantId
     });
@@ -69,7 +107,7 @@ app.post('/chat', async (req, res) => {
               console.error(`❌ Error fetching Pinterest results for "${query}":`, err);
               toolOutputs.push({
                 tool_call_id: toolCall.id,
-                output: JSON.stringify([]) // still respond to avoid breaking chain
+                output: JSON.stringify([])
               });
             }
           }
@@ -83,15 +121,12 @@ app.post('/chat', async (req, res) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // 4. Return final assistant message with structured moodboard (if present)
     const messages = await openai.beta.threads.messages.list(thread.id);
     const lastMsg = messages.data.find(m => m.role === 'assistant');
 
     let moodboard = null;
     try {
       let content = lastMsg?.content?.[0]?.text?.value || '';
-
-      // Clean up markdown formatting if present
       if (content.startsWith('```json')) {
         content = content.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
       }
@@ -102,7 +137,6 @@ app.post('/chat', async (req, res) => {
           moodboard = parsed.moodboard;
         }
       }
-
     } catch (e) {
       console.log('⚠️ No structured moodboard returned:', e.message);
     }
