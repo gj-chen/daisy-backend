@@ -20,17 +20,24 @@ app.post('/chat', async (req, res) => {
   const { userMessage, threadId } = req.body;
 
   const readinessSignals = [
-    "i'm ready", "im ready", "ready", "cool", "go", "start styling", "let's go", "lets go", "yes", "ok let's begin"
+    "i'm ready", "im ready", "ready to start", "let's go",
+    "start styling", "yes style me", "ok let's begin", "go ahead"
   ];
 
   const vagueSignals = [
-    "i don't know", "idk", "not sure", "no idea", "something cute", "whatever", "you decide", "any vibe", "anything"
+    "i don't know", "idk", "not sure", "no idea",
+    "something cute", "whatever", "you decide", "any vibe", "anything"
   ];
 
   const styleSelections = ["subtly refined", "casual edge", "blend of both"];
 
   function includesAnySignal(message, signals) {
-    return signals.some(signal => message.toLowerCase().includes(signal));
+    const normalizedMessage = message.toLowerCase().trim();
+    return signals.some(signal =>
+      normalizedMessage === signal ||
+      normalizedMessage.startsWith(signal + " ") ||
+      normalizedMessage.endsWith(" " + signal)
+    );
   }
 
   try {
@@ -71,6 +78,12 @@ app.post('/chat', async (req, res) => {
 
     if (autoTriggerStyling || explicitReady) {
       console.log('🚀 Auto-triggering styling mode...');
+
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'assistant',
+        content: 'Hang tight — I’m pulling some visuals to match this vibe…'
+      });
+
       contextMessages.push({
         role: 'user',
         content: `[META] The user is ready. Switch to styling mode now and stop asking questions.
@@ -87,11 +100,6 @@ app.post('/chat', async (req, res) => {
           }
         }`
       });
-
-      await openai.beta.threads.messages.create(thread.id, {
-        role: 'assistant',
-        content: 'Hang tight — I’m pulling some visuals to match this vibe…'
-      });
     }
 
     for (const msg of contextMessages) {
@@ -107,11 +115,10 @@ app.post('/chat', async (req, res) => {
       assistant_id: assistantId
     });
 
-    let finalRun;
     while (true) {
       const status = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+
       if (status.status === 'completed') {
-        finalRun = status;
         break;
       }
 
@@ -161,7 +168,6 @@ app.post('/chat', async (req, res) => {
     try {
       let content = lastMsg?.content?.[0]?.text?.value || '';
 
-      // Robustly extract JSON within content using regex
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
