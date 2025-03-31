@@ -42,9 +42,27 @@ app.post('/chat', async (req, res) => {
 
     if (includesAnySignal(userMessage, vagueSignals)) {
       console.log('🤔 User seems unsure — guiding Daisy to suggest style directions...');
+
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'assistant',
+        content: "I can see you're unsure—let me suggest some ideas to guide us. One moment while I gather some inspiration..."
+      });
+
       contextMessages.push({
         role: 'user',
-        content: '[META] The user is unsure. Offer 2–3 aesthetic directions or ask if they want help picking a vibe.'
+        content: `[META] The user is unsure. Offer exactly 2–3 aesthetic directions clearly.
+        Include a structured JSON moodboard in your response using exactly this format:
+        {
+          "moodboard": {
+            "imageUrls": ["url1", "url2", "..."],
+            "rationale": {
+              "goal": "...",
+              "whatWorks": ["...", "..."],
+              "avoid": ["...", "..."],
+              "tip": "..."
+            }
+          }
+        }`
       });
     }
 
@@ -142,12 +160,11 @@ app.post('/chat', async (req, res) => {
     let moodboard = null;
     try {
       let content = lastMsg?.content?.[0]?.text?.value || '';
-      if (content.startsWith('```json')) {
-        content = content.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-      }
 
-      if (content.startsWith('{')) {
-        const parsed = JSON.parse(content);
+      // Robustly extract JSON within content using regex
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
         if (parsed?.moodboard) {
           moodboard = parsed.moodboard;
         }
