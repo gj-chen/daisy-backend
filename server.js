@@ -27,6 +27,8 @@ app.post('/chat', async (req, res) => {
     "i don't know", "idk", "not sure", "no idea", "something cute", "whatever", "you decide", "any vibe", "anything"
   ];
 
+  const styleSelections = ["subtly refined", "casual edge", "blend of both"];
+
   function includesAnySignal(message, signals) {
     return signals.some(signal => message.toLowerCase().includes(signal));
   }
@@ -36,7 +38,6 @@ app.post('/chat', async (req, res) => {
       ? { id: threadId }
       : await openai.beta.threads.create();
 
-    // Inject [META] context messages before assistant run
     const contextMessages = [];
 
     if (includesAnySignal(userMessage, vagueSignals)) {
@@ -47,14 +48,28 @@ app.post('/chat', async (req, res) => {
       });
     }
 
-    if (includesAnySignal(userMessage, readinessSignals)) {
-      console.log('🚀 User is ready — triggering styling mode...');
+    const autoTriggerStyling = includesAnySignal(userMessage, styleSelections);
+    const explicitReady = includesAnySignal(userMessage, readinessSignals);
+
+    if (autoTriggerStyling || explicitReady) {
+      console.log('🚀 Auto-triggering styling mode...');
       contextMessages.push({
         role: 'user',
-        content: '[META] The user is ready. Switch to styling mode now and stop asking questions.'
+        content: `[META] The user is ready. Switch to styling mode now and stop asking questions.
+        When you finish creating a moodboard, always respond with this JSON format:
+        {
+          "moodboard": {
+            "imageUrls": ["url1", "url2", "..."],
+            "rationale": {
+              "goal": "...",
+              "whatWorks": ["...", "..."],
+              "avoid": ["...", "..."],
+              "tip": "..."
+            }
+          }
+        }`
       });
 
-      // Inject "pulling visuals" message before run
       await openai.beta.threads.messages.create(thread.id, {
         role: 'assistant',
         content: 'Hang tight — I’m pulling some visuals to match this vibe…'
